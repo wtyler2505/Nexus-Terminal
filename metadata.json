@@ -1,0 +1,7 @@
+{
+  "name": "Nexus Terminal",
+  "description": "A centralized context hub ('Nexus') where multiple AI personas (Architect, Engineer, Critic) share a single state, objective, and scratchpad to collaborate on complex tasks, simulating a multi-agent war room.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
