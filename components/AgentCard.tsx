@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AgentConfig } from '../types';
+import { AgentConfig, AgentPriority } from '../types';
 
 export type AgentStatus = 'idle' | 'processing' | 'error';
 
@@ -10,10 +10,24 @@ interface AgentCardProps {
   status: AgentStatus;
   lastActive?: number;
   isMuted?: boolean;
+  hasUnread?: boolean;
+  priority: AgentPriority;
   onToggleMute?: (e: React.MouseEvent) => void;
+  onChangePriority?: (e: React.MouseEvent) => void;
 }
 
-const AgentCard: React.FC<AgentCardProps> = ({ config, isActive, onClick, status, lastActive, isMuted, onToggleMute }) => {
+const AgentCard: React.FC<AgentCardProps> = ({ 
+  config, 
+  isActive, 
+  onClick, 
+  status, 
+  lastActive, 
+  isMuted, 
+  hasUnread,
+  priority,
+  onToggleMute,
+  onChangePriority
+}) => {
   const [timeAgo, setTimeAgo] = useState<string>('');
 
   // Auto-update time ago text
@@ -36,12 +50,10 @@ const AgentCard: React.FC<AgentCardProps> = ({ config, isActive, onClick, status
     };
 
     updateTime();
-    // Update every minute to keep relative time fresh
     const interval = setInterval(updateTime, 60000);
     return () => clearInterval(interval);
   }, [lastActive]);
 
-  // Determine dynamic border and shadow classes based on status and active state
   let containerClasses = 'bg-slate-900/50 border-slate-700 hover:border-slate-500 hover:bg-slate-800';
   let opacityClass = 'opacity-100';
 
@@ -54,7 +66,12 @@ const AgentCard: React.FC<AgentCardProps> = ({ config, isActive, onClick, status
     containerClasses = `bg-slate-800/80 border-${config.color}-500 shadow-[0_0_15px_rgba(0,0,0,0.3)]`;
   }
 
-  // Determine activity dot color
+  const priorityColors = {
+    [AgentPriority.HIGH]: 'text-red-400 border-red-900 bg-red-950/30',
+    [AgentPriority.NORMAL]: 'text-sky-400 border-sky-900 bg-sky-950/30',
+    [AgentPriority.LOW]: 'text-slate-400 border-slate-700 bg-slate-800/50'
+  };
+
   const isRecent = timeAgo === 'Just now';
 
   return (
@@ -69,7 +86,7 @@ const AgentCard: React.FC<AgentCardProps> = ({ config, isActive, onClick, status
       <div className="flex items-center gap-3">
         {/* Avatar / Icon Status */}
         <div className={`
-          w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold transition-colors
+          w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold transition-colors relative
           ${status === 'error' && !isMuted
             ? 'bg-red-500/20 text-red-500 border-red-500/50' 
             : isActive && !isMuted
@@ -82,16 +99,36 @@ const AgentCard: React.FC<AgentCardProps> = ({ config, isActive, onClick, status
           ) : (
             config.avatar
           )}
+          
+          {/* Unread Indicator */}
+          {hasUnread && !isMuted && !isActive && (
+            <span className="absolute -top-1 -right-1 flex h-3 w-3">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-cyan-500 border-2 border-slate-900"></span>
+            </span>
+          )}
         </div>
         
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between">
-            <h3 className={`text-sm font-semibold truncate ${isActive || status === 'error' ? 'text-white' : 'text-slate-400'}`}>
+          <div className="flex items-center justify-between mb-1">
+            <h3 className={`text-sm font-semibold truncate flex items-center gap-1 ${isActive || status === 'error' ? 'text-white' : 'text-slate-400'}`}>
               {config.name}
+              {status === 'processing' && !isMuted && (
+                <span className="w-1.5 h-4 bg-white animate-pulse inline-block ml-1 align-middle opacity-70"></span>
+              )}
             </h3>
             
             <div className="flex items-center gap-2">
-               {/* Mute Toggle */}
+               {onChangePriority && !isMuted && (
+                 <button
+                   onClick={(e) => { e.stopPropagation(); onChangePriority(e); }}
+                   className={`text-[9px] font-mono px-1.5 py-0.5 rounded border uppercase transition-colors hover:opacity-80 ${priorityColors[priority]}`}
+                   title="Cycle Priority"
+                 >
+                   {priority}
+                 </button>
+               )}
+
                {onToggleMute && (
                 <button 
                   onClick={(e) => { e.stopPropagation(); onToggleMute(e); }}
@@ -105,29 +142,14 @@ const AgentCard: React.FC<AgentCardProps> = ({ config, isActive, onClick, status
                   )}
                 </button>
                )}
-
-              {/* Status Indicator */}
-              {status === 'processing' && !isMuted && (
-                <span className="flex h-2 w-2 relative">
-                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full bg-${config.color}-400 opacity-75`}></span>
-                  <span className={`relative inline-flex rounded-full h-2 w-2 bg-${config.color}-500`}></span>
-                </span>
-              )}
-              {status === 'error' && !isMuted && (
-                 <span className="flex h-2 w-2 relative">
-                   <span className="absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-20 animate-pulse"></span>
-                   <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                 </span>
-              )}
             </div>
           </div>
-          <p className={`text-xs truncate ${status === 'error' && !isMuted ? 'text-red-400 font-medium' : 'text-slate-500'}`}>
-             {isMuted ? 'Dormant' : (status === 'error' ? 'Connection Lost' : (lastActive && isRecent && status === 'idle' ? 'Online' : config.description))}
+          <p className={`text-xs truncate ${status === 'error' && !isMuted ? 'text-red-400 font-medium' : hasUnread ? 'text-cyan-300 font-medium' : 'text-slate-500'}`}>
+             {isMuted ? 'Dormant' : (status === 'error' ? 'Connection Lost' : hasUnread ? 'Unread Message' : (lastActive && isRecent && status === 'idle' ? 'Online' : config.description))}
           </p>
         </div>
       </div>
       
-      {/* Active Indicator Line */}
       {isActive && status !== 'error' && !isMuted && (
         <div className={`absolute bottom-0 left-4 right-4 h-[2px] bg-${config.color}-500 shadow-[0_0_8px_currentColor] rounded-full`} />
       )}

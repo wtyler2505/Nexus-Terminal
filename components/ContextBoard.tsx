@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ContextNodeState } from '../types';
 
 interface ContextBoardProps {
@@ -6,15 +6,62 @@ interface ContextBoardProps {
   onChange: (newState: ContextNodeState) => void;
   onAiSynthesize?: () => void;
   isSynthesizing?: boolean;
+  lastSynthesizedFileContent?: string;
 }
 
-const ContextBoard: React.FC<ContextBoardProps> = ({ state, onChange, onAiSynthesize, isSynthesizing }) => {
+const ContextBoard: React.FC<ContextBoardProps> = ({ 
+  state, 
+  onChange, 
+  onAiSynthesize, 
+  isSynthesizing,
+  lastSynthesizedFileContent 
+}) => {
+  const [showDiff, setShowDiff] = useState(false);
+  const [copied, setCopied] = useState(false);
   
   const handleChange = (field: keyof ContextNodeState, value: string) => {
     onChange({
       ...state,
       [field]: value
     });
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(state.activeFile);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy', err);
+    }
+  };
+
+  // Simple diff rendering (line based)
+  const renderDiff = () => {
+    if (!lastSynthesizedFileContent) return <div className="text-slate-500 italic p-4">No previous version to compare.</div>;
+    
+    const oldLines = lastSynthesizedFileContent.split('\n');
+    const newLines = state.activeFile.split('\n');
+    
+    // Very naive diff visualization for UI demo purposes
+    // Real LCS is heavy to render here without a lib, so we highlight obvious changes
+    return (
+      <div className="flex-1 w-full bg-[#0d1117] border border-slate-700/50 rounded-sm p-3 text-xs font-mono whitespace-pre overflow-auto backdrop-blur-sm">
+        {newLines.map((line, i) => {
+          const isNew = !oldLines.includes(line); // Simple check
+          // const isModified = oldLines[i] !== line;
+          
+          return (
+            <div key={i} className={`${isNew ? 'bg-green-900/30 text-green-300' : 'text-slate-400'}`}>
+              <span className="inline-block w-8 text-slate-600 select-none border-r border-slate-800 mr-2 text-right pr-2">{i + 1}</span>
+              {isNew && <span className="select-none text-green-500 mr-1">+</span>}
+              {!isNew && <span className="select-none text-transparent mr-1"> </span>}
+              {line}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
@@ -92,23 +139,53 @@ const ContextBoard: React.FC<ContextBoardProps> = ({ state, onChange, onAiSynthe
       </div>
 
       {/* File Viewer Section */}
-      <div className="flex-1 flex flex-col space-y-2 min-h-[200px] relative z-10">
-        <div className="flex items-center justify-between">
-            <label className="text-[10px] font-bold text-amber-400/80 font-mono">ACTIVE_ARTIFACT</label>
-            <input 
-                type="text" 
-                value={state.activeFileName}
-                onChange={(e) => handleChange('activeFileName', e.target.value)}
-                className="bg-slate-900/50 border border-slate-700/50 text-xs text-slate-300 px-2 py-0.5 rounded-sm focus:outline-none focus:border-amber-500/50 text-right font-mono"
-            />
+      <div className="flex-1 flex flex-col space-y-2 min-h-[300px] relative z-10">
+        <div className="flex items-center justify-between bg-slate-900/40 p-1 rounded-t-sm border-t border-x border-slate-800">
+            <label className="text-[10px] font-bold text-amber-400/80 font-mono pl-2">ACTIVE_ARTIFACT</label>
+            <div className="flex items-center gap-2">
+                <button
+                    onClick={() => setShowDiff(!showDiff)}
+                    className={`text-[9px] px-2 py-0.5 rounded border uppercase transition-colors ${showDiff ? 'bg-indigo-900/50 border-indigo-500 text-indigo-300' : 'bg-slate-900 border-slate-700 text-slate-400'}`}
+                >
+                    {showDiff ? 'HIDE DIFF' : 'COMPARE'}
+                </button>
+                <button
+                  onClick={handleCopy}
+                  title="Copy to Clipboard"
+                  className={`text-[9px] px-2 py-0.5 rounded border uppercase transition-colors flex items-center gap-1 ${copied ? 'bg-green-900/50 border-green-500 text-green-300' : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white hover:border-slate-500'}`}
+                >
+                  {copied ? (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      COPIED
+                    </>
+                  ) : (
+                    <>
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+                      COPY
+                    </>
+                  )}
+                </button>
+                <input 
+                    type="text" 
+                    value={state.activeFileName}
+                    onChange={(e) => handleChange('activeFileName', e.target.value)}
+                    className="bg-slate-900 border border-slate-700/50 text-xs text-slate-300 px-2 py-0.5 rounded-sm focus:outline-none focus:border-amber-500/50 text-right font-mono w-32"
+                />
+            </div>
         </div>
-        <textarea
-          value={state.activeFile}
-          onChange={(e) => handleChange('activeFile', e.target.value)}
-          placeholder="// Code or content goes here..."
-          className="flex-1 w-full bg-[#0d1117]/80 border border-slate-700/50 rounded-sm p-3 text-xs text-slate-300 focus:outline-none focus:border-amber-500/50 transition-colors resize-none font-mono whitespace-pre backdrop-blur-sm"
-          spellCheck={false}
-        />
+        
+        {showDiff ? (
+           renderDiff()
+        ) : (
+          <textarea
+            value={state.activeFile}
+            onChange={(e) => handleChange('activeFile', e.target.value)}
+            placeholder="// Code or content goes here..."
+            className="flex-1 w-full bg-[#0d1117]/80 border border-slate-700/50 rounded-b-sm p-3 text-xs text-slate-300 focus:outline-none focus:border-amber-500/50 transition-colors resize-none font-mono whitespace-pre backdrop-blur-sm"
+            spellCheck={false}
+          />
+        )}
       </div>
 
     </div>

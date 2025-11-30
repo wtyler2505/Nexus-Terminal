@@ -62,11 +62,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, agents, onSendM
             }
           }
 
-          // Combine the text that was already there when we started listening
-          // with the new final transcript and the current interim result.
           if (finalTranscript || interimTranscript) {
              const newContent = (finalTranscript + interimTranscript).trim();
-             // Simple append logic for this session
              setInputValue(textBeforeListening.current + (textBeforeListening.current && newContent ? ' ' : '') + newContent);
           }
         };
@@ -82,7 +79,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, agents, onSendM
     if (isListening) {
       recognitionRef.current.stop();
     } else {
-      // Snapshot current text so we append to it
       textBeforeListening.current = inputValue;
       recognitionRef.current.start();
     }
@@ -142,6 +138,55 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, agents, onSendM
                     : 'bg-slate-800/50 border border-slate-700 text-slate-300 rounded-tl-none'}
                 `}>
                   {msg.content}
+                  
+                  {/* Tool Call Feedback */}
+                  {msg.toolCalls && msg.toolCalls.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {msg.toolCalls.map(tool => (
+                        <div key={tool.id} className={`text-xs p-2 rounded border font-mono flex flex-col gap-2 ${
+                          tool.status === 'failure' ? 'bg-red-950/20 border-red-900/50' : 
+                          tool.status === 'success' ? 'bg-green-950/10 border-green-900/30' : 
+                          'bg-slate-900/50 border-slate-800'
+                        }`}>
+                          <div className="flex items-center justify-between">
+                             <div className="flex items-center gap-2">
+                                <span className={`text-[10px] uppercase font-bold ${
+                                   tool.status === 'failure' ? 'text-red-400' : 
+                                   tool.status === 'success' ? 'text-green-400' : 
+                                   'text-amber-400'
+                                }`}>
+                                   {tool.status === 'success' ? '✓' : tool.status === 'failure' ? '✕' : '➜'} {tool.name}
+                                </span>
+                             </div>
+                             <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase tracking-wider ${
+                               tool.status === 'success' ? 'bg-green-900/30 text-green-400' : 
+                               tool.status === 'failure' ? 'bg-red-900/30 text-red-400' : 
+                               'bg-amber-900/30 text-amber-400'
+                             }`}>
+                               {tool.status || 'PENDING'}
+                             </span>
+                          </div>
+                          
+                          {/* Arguments Preview */}
+                          <div className="bg-slate-950/50 p-1.5 rounded text-[10px] text-slate-400 break-all font-mono">
+                             <span className="opacity-50 select-none mr-2">$</span>
+                             {JSON.stringify(tool.args)}
+                          </div>
+
+                          {/* Outcome / Error with clear styling */}
+                          {(tool.outcome) && (
+                            <div className={`p-1.5 rounded text-[10px] font-mono ${
+                               tool.status === 'failure' ? 'bg-red-950/40 text-red-300 border border-red-900/20' : 
+                               'bg-slate-900/30 text-slate-300 border border-slate-700/30'
+                            }`}>
+                               <span className="opacity-50 mr-2 uppercase tracking-wider text-[8px]">{tool.status === 'failure' ? 'ERROR_LOG:' : 'RETURN:'}</span>
+                               {tool.outcome}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

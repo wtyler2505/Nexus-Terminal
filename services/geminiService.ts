@@ -1,10 +1,38 @@
-import { GoogleGenAI, Type } from "@google/genai";
-import { AgentRole, ContextNodeState, Message } from "../types";
+import { GoogleGenAI, Type, FunctionDeclaration, Tool } from "@google/genai";
+import { AgentRole, ContextNodeState, Message, AgentResponse, ToolCall } from "../types";
 
 // Helper to get the API key safely
 const getApiKey = (): string => {
   return process.env.API_KEY || '';
 };
+
+// Tool Definitions
+const updateNexusStateTool: FunctionDeclaration = {
+  name: 'update_nexus_state',
+  description: 'Update the shared Nexus state. Use this to change the Objective, add to the Scratchpad, or overwrite the Active File content. This is your primary way to "do work" on the project.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      objective: { type: Type.STRING, description: 'New objective statement.' },
+      scratchpad: { type: Type.STRING, description: 'Appended notes or updated plan.' },
+      activeFileName: { type: Type.STRING, description: 'Rename the active file.' },
+      activeFileContent: { type: Type.STRING, description: 'The new content for the active file.' }
+    }
+  }
+};
+
+const getActiveFileTool: FunctionDeclaration = {
+  name: 'get_active_file',
+  description: 'Read the current content and metadata of the active file. Useful to verify the state of the artifact before or after edits.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {}
+  }
+};
+
+const TOOLS: Tool[] = [{
+  functionDeclarations: [updateNexusStateTool, getActiveFileTool]
+}];
 
 // Construct the prompt context based on the shared node state
 const buildContextPrompt = (state: ContextNodeState, agentRole: AgentRole): string => {
@@ -21,9 +49,9 @@ ${state.scratchpad || '(Empty)'}
 
 You are accessing this data from the Nexus Node. 
 You are the ${agentRole}. 
-Read the shared state above. 
-If you generate code, output it in standard markdown code blocks.
-If you suggest changes to the scratchpad, explicitly state "Update Scratchpad:" followed by the text.
+Read the shared state above.
+You have access to tools to update this state directly.
+If you generate code in text, output it in standard markdown code blocks.
 `;
 };
 
@@ -47,6 +75,10 @@ const handleApiError = (error: any, context: string): never => {
   let type: GeminiServiceError['type'] = 'UNKNOWN';
   let suggestion = 'Check system logs for details.';
   
+  // Attempt to extract Request ID or status details
+  const requestId = error.requestId || error.response?.headers?.get('x-goog-request-id') || 'N/A';
+  const status = error.status || error.response?.status || 'N/A';
+
   // Analyze error message to determine type and suggestion
   if (msg.includes('API key') || msg.includes('403')) {
     type = 'AUTH';
@@ -65,7 +97,8 @@ const handleApiError = (error: any, context: string): never => {
       suggestion = 'The model returned an empty response. Verify input data.';
   }
   
-  throw new GeminiServiceError(msg, type, suggestion, error);
+  const detailedMsg = `${msg} (Status: ${status}, RequestID: ${requestId})`;
+  throw new GeminiServiceError(detailedMsg, type, suggestion, { ...error, requestId, status });
 };
 
 export const generateAgentResponse = async (
@@ -73,7 +106,7 @@ export const generateAgentResponse = async (
   history: Message[],
   nodeState: ContextNodeState,
   systemInstruction: string
-): Promise<string> => {
+): Promise<AgentResponse> => {
   const apiKey = getApiKey();
   if (!apiKey) {
     throw new GeminiServiceError("API Key not found in environment.", 'AUTH', "Set the API_KEY environment variable.");
@@ -109,15 +142,37 @@ export const generateAgentResponse = async (
       config: {
         systemInstruction: systemInstruction,
         temperature: 0.7,
-        thinkingConfig: thinkingConfig, 
+        thinkingConfig: thinkingConfig,
+        tools: TOOLS
       }
     });
 
-    if (!response.text) {
-        throw new Error("Empty response from model.");
+    if (!response.candidates?.[0]) {
+        throw new Error("Empty response candidates from model.");
     }
 
-    return response.text;
+    const candidate = response.candidates[0];
+    let text = "";
+    const toolCalls: ToolCall[] = [];
+
+    // Parse parts for text and function calls
+    if (candidate.content?.parts) {
+      for (const part of candidate.content.parts) {
+        if (part.text) {
+          text += part.text;
+        }
+        if (part.functionCall) {
+          toolCalls.push({
+            id: 'call_' + Math.random().toString(36).substr(2, 9),
+            name: part.functionCall.name,
+            args: part.functionCall.args,
+            status: 'pending' // Initial status
+          });
+        }
+      }
+    }
+
+    return { text, toolCalls };
   } catch (error) {
     return handleApiError(error, `Agent-${agentRole}`);
   }

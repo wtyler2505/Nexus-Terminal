@@ -5,6 +5,12 @@ export enum AgentRole {
   USER = 'USER'
 }
 
+export enum AgentPriority {
+  HIGH = 'HIGH',
+  NORMAL = 'NORMAL',
+  LOW = 'LOW'
+}
+
 export interface AgentConfig {
   id: AgentRole;
   name: string;
@@ -20,6 +26,7 @@ export interface Message {
   content: string;
   timestamp: number;
   isStreaming?: boolean;
+  toolCalls?: ToolCall[];
 }
 
 export interface ContextNodeState {
@@ -30,6 +37,14 @@ export interface ContextNodeState {
 }
 
 export interface ToolCall {
-  tool: string;
+  id: string;
+  name: string;
   args: any;
+  status?: 'pending' | 'success' | 'failure';
+  outcome?: string;
+}
+
+export interface AgentResponse {
+  text: string;
+  toolCalls: ToolCall[];
 }
