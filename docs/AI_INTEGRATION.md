@@ -1,55 +1,79 @@
 # AI Integration Guide
 
-Nexus Terminal heavily relies on the Google Gemini API. All interactions are handled in `services/geminiService.ts`.
+Nexus Terminal is built on top of the **Google GenAI SDK** (`@google/genai`). This document details how we orchestrate the models.
 
-## Model Configuration
+## 1. Model Strategy
 
-We use a tiered model strategy to balance cost/speed with intelligence.
+We use a "Right Model for the Right Job" approach to optimize for intelligence vs. speed.
 
-| Role | Model | Reason |
-| :--- | :--- | :--- |
-| **Architect** | `gemini-3-pro-preview` | Requires high reasoning capability for planning. |
-| **Nexus Core** | `gemini-3-pro-preview` | The "Brain" requires the best context window and reasoning to synthesize state. |
-| **Engineer** | `gemini-2.5-flash` | Optimized for speed and syntax correctness. |
-| **Critic** | `gemini-2.5-flash` | Optimized for fast scanning and pattern recognition. |
+| Role | Model ID | Config | Why? |
+| :--- | :--- | :--- | :--- |
+| **Architect** | `gemini-3-pro-preview` | `thinkingBudget: 2048` | Needs deep reasoning capabilities to break down abstract objectives into concrete technical plans. Thinking mode enables "Chain of Thought". |
+| **Nexus Core** | `gemini-3-pro-preview` | `responseMimeType: "application/json"` | Needs massive context window to read full history + file, and strict JSON output for state patches. |
+| **Engineer** | `gemini-2.5-flash` | Standard | Fast, efficient coding model. Good at following specific instructions. |
+| **Critic** | `gemini-2.5-flash` | Standard | Fast pattern recognition for auditing and security checks. |
 
-### Thinking Mode
-The **Architect** role utilizes the `thinkingConfig` (budget: 2048 tokens). This allows the model to output a hidden internal monologue before generating the final response, improving logical consistency for complex architectural plans.
+## 2. Prompt Engineering
 
-## The "Nexus State" Prompt Pattern
-
-Every agent request injects the **Shared Nexus State** at the very top of the prompt. This forces the model to ignore its latent training data in favor of the current project context.
+### Context Injection
+Every request to an agent is prefixed with the **Dynamic Context Block**. This overrides the model's internal training with the "Now".
 
 ```text
 === SHARED NEXUS STATE ===
-CURRENT OBJECTIVE: {objective}
-ACTIVE FILE ({filename}):
-{file_content}
+CURRENT OBJECTIVE: [Dynamic content from State]
+ACTIVE FILE (App.tsx):
+```
+[Dynamic content of the file]
+```
 SHARED SCRATCHPAD:
-{scratchpad}
+[Dynamic content from Scratchpad]
 ==========================
 ```
 
-## Gemini Core Synthesis
+### System Instructions
+Each agent has a rigid "Persona" defined in `App.tsx`:
+- **Architect**: "You are the LEAD ARCHITECT... BREAK IT DOWN... Use 'update_nexus_state'..."
+- **Engineer**: "You are the SENIOR ENGINEER... WRITE CODE... SAVE IT..."
+- **Critic**: "You are SECURITY LEAD... AUDIT..."
 
-The `synthesizeNexusState` function is unique. It does not act as a chatbot.
-1.  **Input**: Chat History + Full Context State.
-2.  **Instruction**: "Act as the central intelligence fabric... Monitor inconsistencies... Update the Objective."
-3.  **Output**: Strictly **JSON**.
-4.  **Schema**:
-    ```json
-    {
-      "objective": "Updated string...",
-      "scratchpad": "Updated notes...",
-      "reasoning": "Why I made this change..."
-    }
-    ```
+## 3. Tool Definitions
 
-## Error Handling
+The agents interact with the app via the `TOOLS` array defined in `services/geminiService.ts`.
 
-We implement a custom `GeminiServiceError` class to handle API-specific failure modes:
-*   **429 (Rate Limit)**: Suggests a 60s cooldown.
-*   **503 (Overloaded)**: Suggests a retry.
-*   **Safety Filters**: Notifies the user to rephrase.
+### `update_nexus_state`
+The primary "Effect" tool.
+```typescript
+{
+  name: 'update_nexus_state',
+  description: 'Update the shared Nexus state...',
+  parameters: {
+    objective: { type: STRING },
+    scratchpad: { type: STRING },
+    activeFileName: { type: STRING },
+    activeFileContent: { type: STRING }
+  }
+}
+```
 
-These errors are caught in `App.tsx` and displayed as red system messages in the chat stream.
+### `get_active_file`
+The primary "Sensor" tool.
+```typescript
+{
+  name: 'get_active_file',
+  description: 'Read the current content and metadata of the active file...',
+  parameters: {}
+}
+```
+
+## 4. Error Handling & Resilience
+
+We use a custom `GeminiServiceError` class to handle API failures gracefully.
+
+**Retry Logic:**
+- **429 Rate Limit**: The UI suggests a 60s cooldown.
+- **500 Server Error**: The UI suggests a retry.
+- **Safety Block**: The UI warns the user that the prompt triggered safety filters.
+
+**Visual Feedback:**
+Errors are injected into the Chat Stream as system messages with a red distinct style:
+`[SYSTEM ERROR] Rate limit exceeded...`
